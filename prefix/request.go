@@ -3,6 +3,7 @@ package prefix
 import (
 	"context"
 	"net/http"
+	"strings"
 )
 
 type mountKey struct{}
@@ -20,6 +21,11 @@ func URLForRequest(r *http.Request, target string) string {
 		return RouteURL(mount.prefix, target)
 	}
 	return RouteURL("", target)
+}
+
+// PrefixForRequest returns the normalized prefix under which r is mounted.
+func PrefixForRequest(r *http.Request) string {
+	return strings.TrimSuffix(URLForRequest(r, "/"), "/")
 }
 
 // Redirect redirects to a prefix-free application path using the request's mount.

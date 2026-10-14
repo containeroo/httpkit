@@ -43,6 +43,18 @@ func TestMountedRedirects(t *testing.T) {
 	}
 }
 
+func TestPrefixForRequest(t *testing.T) {
+	var actual string
+	handler := MountUnderPrefix(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		actual = PrefixForRequest(request)
+	}), "/kumbuka")
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/kumbuka/", nil))
+	if actual != "/kumbuka" {
+		t.Fatalf("prefix: %q", actual)
+	}
+}
+
 func TestFileServerRedirect(t *testing.T) {
 	h := MountUnderPrefixWithOptions(http.FileServer(http.FS(fstest.MapFS{
 		"docs/file.txt": &fstest.MapFile{Data: []byte("hello")},
