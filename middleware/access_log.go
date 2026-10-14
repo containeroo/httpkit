@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/containeroo/httpkit/response"
 )
 
 // AccessLog records standard request completion attributes.
@@ -24,4 +26,15 @@ func AccessLogWithAttributes(logger *slog.Logger, attributes func(http.ResponseW
 			logger.Info("request", args...)
 		})
 	}
+}
+
+// AccessLogWithErrorReference logs the reference associated with an HTTP 500 response.
+func AccessLogWithErrorReference(logger *slog.Logger) Middleware {
+	return AccessLogWithAttributes(logger, func(w http.ResponseWriter, _ *http.Request) []any {
+		request, ok := w.(*response.RequestWriter)
+		if !ok || request.ErrorReference == "" {
+			return nil
+		}
+		return []any{"error_reference", request.ErrorReference}
+	})
 }
