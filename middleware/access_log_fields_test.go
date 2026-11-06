@@ -21,6 +21,9 @@ func TestAccessLogSelectedFields(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/private?secret=hidden", nil)
 	handler.ServeHTTP(httptest.NewRecorder(), request)
 	logged := output.String()
+	if index := strings.LastIndex(logged, "msg=request "); index >= 0 {
+		logged = logged[index:]
+	}
 	for _, expected := range []string{"method=POST", "status=500", "duration=", "error_reference="} {
 		if !strings.Contains(logged, expected) {
 			t.Errorf("missing %s in %s", expected, logged)
