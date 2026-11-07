@@ -32,6 +32,8 @@ type accessLogConfig struct {
 	attributes func(http.ResponseWriter, *http.Request) []any
 }
 
+type accessLogExtractor func([]any, *response.RequestWriter, *http.Request, time.Duration) []any
+
 // WithAccessLogFields selects the fields emitted by AccessLog, replacing the defaults.
 func WithAccessLogFields(fields ...AccessLogField) AccessLogOption {
 	selected := append([]AccessLogField(nil), fields...)
@@ -46,15 +48,19 @@ func AccessLog(logger *slog.Logger, options ...AccessLogOption) Middleware {
 			option(&config)
 		}
 	}
+
 	if logger == nil {
 		logger = slog.Default()
 	}
+	extractFields, trackResponse := buildAccessLogExtractor(config.fields)
+	attributes := config.attributes
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			started := time.Now()
 			writer := w
 			var tracked *response.RequestWriter
-			if containsAccessLogField(config.fields, LogStatus) || containsAccessLogField(config.fields, LogErrorReference) {
+			if trackResponse {
 				if existing, ok := w.(*response.RequestWriter); ok {
 					tracked = existing
 				} else {
@@ -64,41 +70,62 @@ func AccessLog(logger *slog.Logger, options ...AccessLogOption) Middleware {
 			}
 			next.ServeHTTP(writer, r)
 			args := []any{"event", "request_complete"}
-			for _, field := range config.fields {
-				switch field {
-				case LogMethod:
-					args = append(args, "method", r.Method)
-				case LogPath:
-					args = append(args, "path", r.URL.Path)
-				case LogDuration:
-					args = append(args, "duration", time.Since(started))
-				case LogStatus:
-					status := http.StatusOK
-					if tracked != nil && tracked.Status != 0 {
-						status = tracked.Status
-					}
-					args = append(args, "status", status)
-				case LogErrorReference:
-					if tracked != nil && tracked.ErrorReference != "" {
-						args = append(args, "error_reference", tracked.ErrorReference)
-					}
-				}
-			}
-			if config.attributes != nil {
-				args = append(args, config.attributes(writer, r)...)
+			args = extractFields(args, tracked, r, time.Since(started))
+			if attributes != nil {
+				args = append(args, attributes(writer, r)...)
 			}
 			logger.Info("request", args...)
 		})
 	}
 }
 
-func containsAccessLogField(fields []AccessLogField, field AccessLogField) bool {
-	for _, candidate := range fields {
-		if candidate == field {
-			return true
+// buildAccessLogExtractor compiles the configured field selection once when the
+// middleware is constructed. Its returned flag indicates whether a response
+// writer must be tracked to populate the selected fields.
+func buildAccessLogExtractor(fields []AccessLogField) (accessLogExtractor, bool) {
+	extractors := make([]accessLogExtractor, 0, len(fields))
+	trackResponse := false
+
+	for _, field := range fields {
+		switch field {
+		case LogMethod:
+			extractors = append(extractors, func(args []any, _ *response.RequestWriter, r *http.Request, _ time.Duration) []any {
+				return append(args, "method", r.Method)
+			})
+		case LogPath:
+			extractors = append(extractors, func(args []any, _ *response.RequestWriter, r *http.Request, _ time.Duration) []any {
+				return append(args, "path", r.URL.Path)
+			})
+		case LogStatus:
+			trackResponse = true
+			extractors = append(extractors, func(args []any, tracked *response.RequestWriter, _ *http.Request, _ time.Duration) []any {
+				status := http.StatusOK
+				if tracked != nil && tracked.Status != 0 {
+					status = tracked.Status
+				}
+				return append(args, "status", status)
+			})
+		case LogDuration:
+			extractors = append(extractors, func(args []any, _ *response.RequestWriter, _ *http.Request, duration time.Duration) []any {
+				return append(args, "duration", duration)
+			})
+		case LogErrorReference:
+			trackResponse = true
+			extractors = append(extractors, func(args []any, tracked *response.RequestWriter, _ *http.Request, _ time.Duration) []any {
+				if tracked != nil && tracked.ErrorReference != "" {
+					return append(args, "error_reference", tracked.ErrorReference)
+				}
+				return args
+			})
 		}
 	}
-	return false
+
+	return func(args []any, tracked *response.RequestWriter, r *http.Request, duration time.Duration) []any {
+		for _, extractor := range extractors {
+			args = extractor(args, tracked, r, duration)
+		}
+		return args
+	}, trackResponse
 }
 
 // AccessLogWithAttributes records request completion with application-specific attributes.

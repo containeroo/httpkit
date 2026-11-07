@@ -59,3 +59,38 @@ func TestAccessLogImplicitStatus(t *testing.T) {
 		t.Fatal(output.String())
 	}
 }
+
+func TestAccessLogResponseTrackingIsSelectedAtConstruction(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		fields        []AccessLogField
+		trackResponse bool
+	}{
+		{name: "default fields", fields: []AccessLogField{LogMethod, LogPath, LogDuration}},
+		{name: "status", fields: []AccessLogField{LogStatus}, trackResponse: true},
+		{name: "error reference", fields: []AccessLogField{LogErrorReference}, trackResponse: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, trackResponse := buildAccessLogExtractor(test.fields)
+			if trackResponse != test.trackResponse {
+				t.Errorf("trackResponse = %t, want %t", trackResponse, test.trackResponse)
+			}
+		})
+	}
+}
+
+func TestAccessLogAttributesReceiveOriginalWriterWithoutResponseFields(t *testing.T) {
+	var received http.ResponseWriter
+	handler := AccessLog(slog.New(slog.NewTextHandler(&strings.Builder{}, nil)), func(config *accessLogConfig) {
+		config.attributes = func(w http.ResponseWriter, _ *http.Request) []any {
+			received = w
+			return nil
+		}
+	})(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+	writer := httptest.NewRecorder()
+	handler.ServeHTTP(writer, httptest.NewRequest(http.MethodGet, "/", nil))
+	if received != writer {
+		t.Fatalf("attributes received %T, want original writer", received)
+	}
+}
