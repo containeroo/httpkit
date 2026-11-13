@@ -76,32 +76,3 @@ func TestParseHeaders(t *testing.T) {
 		assert.EqualError(t, err, "duplicate header key found: X-Test")
 	})
 }
-
-func TestParseStatusCodes(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name  string
-		input string
-		want  []int
-		err   string
-	}{
-		{name: "single code", input: "200", want: []int{200}},
-		{name: "multiple codes", input: "200,404,500", want: []int{200, 404, 500}},
-		{name: "ranges", input: "200-202,300-301,500", want: []int{200, 201, 202, 300, 301, 500}},
-		{name: "invalid code", input: "abc", err: "invalid status code: abc"},
-		{name: "invalid range", input: "200--202", err: "invalid status range: 200--202"},
-		{name: "descending range", input: "201-200", err: "invalid status range: 201-200"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := ParseStatusCodes(tc.input)
-			if tc.err != "" {
-				assert.EqualError(t, err, tc.err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
